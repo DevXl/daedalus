@@ -8,11 +8,11 @@ DESCRIPTION
 """
 from pylsl import StreamInlet, StreamOutlet, StreamInfo, resolve_byprop, resolve_streams
 from pyOpenBCI import OpenBCICyton
-from sklearn.linear_model import LinearRegression
 from psychopy import data, core
 import collections
 import numpy as np
 import mne
+import os
 
 
 def broadcast_cyton(device, port="/dev/ttyUSB0"):
@@ -46,30 +46,31 @@ def get_streams(stream_names, chunk_size):
     -------
     inlets (dict) streams and their time correction
     """
-    print("looking for {} streams...".format(len(stream_names)))
+    for stream in stream_names:
+        print("looking for {} stream...".format(stream))
 
-    inlets = {}
+    inlets = collections.defaultdict(dict)
     stream_types = []
     for name in stream_names:
         stream = resolve_byprop('name', name, timeout=2)
+        inlet = StreamInlet(stream[0], max_chunklen=chunk_size)
+        # info = inlet.info()
+        # name = info.name()
+        s_type = inlet.info().type()
+        if s_type == "EEG" and len(stream) == 0:
+            raise RuntimeError("Cant find any EEG stream")
 
-        if len(stream) == 0:
-            raise RuntimeError("Cant find any stream")
-
-        inlet = StreamInlet(stream, max_chunklen=chunk_size)
-        info = inlet.info()
-        name = info.name()
-        stream_types.append(info.type())
+        stream_types.append(s_type)
         inlets[name]["stream"] = inlet
         inlets[name]["correction"] = inlet.time_correction()
 
-    for key, val in collections.Counter(stream_types):
+    for key, val in dict(collections.Counter(stream_types)).items():
         print("Found {} streams of {} data: ".format(val, key))
 
     return inlets
 
 
-def acquire_data(eeg_inlet, marker_inlet, chan_names, record_time):
+def acquire_data(eeg_inlet, marker_inlet, record_time, chunk_size, debug=False):
     """
 
     Returns
@@ -78,10 +79,116 @@ def acquire_data(eeg_inlet, marker_inlet, chan_names, record_time):
     """
     print("Start acquiring data")
 
-    info = eeg_inlet.info()
+    eeg_info = eeg_inlet.info()
+    n_chans = eeg_info.channel_count()
 
-    sfreq = info.nominal_srate()
-    n_chans = info.channel_count()
+    eeg_ls = collections.deque()
+    eeg_ts = collections.deque()
+    marker_ls = collections.deque()
+    marker_ts = collections.deque()
+    marker_prev = collections.deque()
+    drop_log = collections.deque()
+    sample_num = 1
+    prev_marker = 0
+    clock = core.MonotonicClock()
+
+    t_init = clock.getTime()
+    time_correction = eeg_inlet["correction"]
+
+    while (clock.getTime() - t_init) < record_time:
+
+        this_chunk = collections.deque()
+        try:
+            eeg_data, eeg_timestamp = eeg_inlet["stream"].pull_chunk(timeout=2,
+                                                           max_samples=chunk_size)
+            if eeg_timestamp:
+                if len(eeg_data) < chunk_size or len(eeg_data) != len(eeg_timestamp):
+                    drop_log.append(sample_num)
+                else:
+                    eeg_ls.append(eeg_data)
+                    eeg_ts.append(eeg_timestamp)
+
+            if marker_inlet:
+                marker_data, marker_timestamp = marker_inlet["stream"].pull_sample(timeout=0)
+
+                if marker_timestamp:
+                    if debug:
+                        print("DIN: {}".format(marker_data[0]))
+
+                    marker_ls.append(marker_data[0])
+                    marker_ts.append(marker_timestamp)
+                    marker_ts.append(prev_marker)
+                    prev_marker = marker_data[0]
+                else:
+                    marker_ls.append(0)
+                    marker_ts.append(eeg_timestamp)
+                    prev_marker = 0
+            sample_num += 1
+
+        except KeyboardInterrupt:
+            break
+
+    # for i in range(chunk_size):
+    #     this_sample = collections.deque()
+    #     this_sample.append(eeg_timestamp[i] + time_correction)
+    #     this_sample.extend(eeg_data[i])
+    #     this_chunk.append(list(this_sample))
+    # this_sample.append(marker_data[0])
+    #
+    # this_marker = [sample_num, prev_marker, marker_data[0]]
+    # prev_marker = marker_data[0]
+    t_end = clock.getTime()
+    tot_rec_t = t_end - t_init
+    # eeg_ls = list(eeg_ls)
+    # eeg_ts = list(eeg_ts)
+    eeg_df = np.array()
+    print(eeg_ls[0])
+    print(len(eeg_ls[0]))
+    print(eeg_ts[0])
+    print(len(eeg_ts[0]))
+
+    for i in range(sample_num):
+        for j in range(chunk_size):
+            for k in range(n_chans):
+                eeg_df.append([eeg_ts[i][j]])
+                eeg_df.append()
+    print(list(eeg_ls))
+    if marker_inlet:
+        print(len(list(marker_ls)), list(marker_ls)[0])
+        print(len(list(marker_ts)), list(marker_ts)[0])
+    print("Total of {}s data ({} samples) successfully collected...".format(tot_rec_t, sample_num-1))
+    print("Number of dropped chunks: {}".format(len(list(drop_log))))
+
+    eeg_df = np.asarray(list(eeg_ls))
+    event_df = np.asarray(list(marker_ls))
+
+    return eeg_df, event_df, drop_log
+
+
+def save_data(eeg_data, event_data, event_id, chan_names, subj, sfreq=250):
+    """
+
+    Parameters
+    ----------
+    eeg_data
+    event_data
+    sfreq
+
+    Returns
+    -------
+
+    """
+    curr_date = data.getDateStr()
+    eeg_fname = os.path.join(os.getcwd(), "data/eeg/eeg_{}_session{}_{}".format(
+        subj["Participant"], subj["Session"], curr_date))
+    event_fname = os.path.join(os.getcwd(), "data/eeg/event_{}_session{}_{}".format(
+        subj["Participant"], subj["Session"], curr_date))
+
+    print("Saving eeg data to csv file {}.csv".format(eeg_fname))
+    print("Saving event data to csv file {}.csv".format(event_fname))
+    np.savetxt("{}.csv".format(eeg_fname), eeg_data, delimiter=",")
+    np.savetxt("{}.csv".format(event_fname), event_data, delimiter=",")
+
     montage = 'standard_1005'
 
     mne_info = mne.create_info(
@@ -91,60 +198,10 @@ def acquire_data(eeg_inlet, marker_inlet, chan_names, record_time):
         montage=montage
     )
 
-    raw_df = mne.io.RawArray(data, info)
+    tmin = -0.1
+    custom_epochs = mne.EpochsArray(eeg_data, mne_info, event_data, tmin, event_id)
 
-
- # def read_chunk(data, idx, fi, start, stop, cals, mult):
- #        """Read a chunk of raw data"""
- #        input_fname = self._filenames[fi]
- #        data_ = np.genfromtxt(input_fname, delimiter=',', comments='%',
- #                              skip_footer=1)
- #        """
- #        Dealing with the missing data
- #        -----------------------------
- #        When recording with OpenBCI over Bluetooth, it is possible for some of
- #        the data packets, samples, to not be recorded. This does not happen
- #        often but it poses a problem for maintaining proper sampling periods.
- #        OpenBCI data format combats this by providing a counter on the sample
- #        to know which ones are missing.
- #        Solution
- #        --------
- #        Interpolate the missing samples by resampling the surrounding samples.
- #        1. Find where the missing samples are.
- #        2. Deal with the counter reset (resets after cycling a byte).
- #        3. Resample given the diffs.
- #        4. Insert resampled data in the array using the diff indices
- #           (index + 1).
- #        5. If number of missing samples is greater than the missing_tol, Values
- #           are replaced with np.nan.
- #        """
- #        # counter goes from 0 to 255, maxdiff is 255.
- #        # make diff one like others.
- #        missing_tol = self._raw_extras[fi]['missing_tol']
- #        diff = np.abs(np.diff(data_[:, 0]))
- #        diff = np.mod(diff, 126) - 1
- #        missing_idx = np.where(diff != 0)[0]
- #        missing_samps = diff[missing_idx].astype(int)
- #
- #        if missing_samps.size:
- #            missing_nsamps = np.sum(missing_samps, dtype=int)
- #            missing_cumsum = np.insert(np.cumsum(missing_samps), 0, 0)[:-1]
- #            missing_data = np.empty((missing_nsamps, data_.shape[-1]),
- #                                    dtype=float)
- #            insert_idx = list()
- #            for idx_, nn, ii in zip(missing_idx, missing_samps,
- #                                    missing_cumsum):
- #                missing_data[ii:ii + nn] = np.nanmean(data_[(idx_, idx_ + 1), :], axis=0)
- #                if nn > missing_tol:
- #                    missing_data[ii:ii + nn] *= np.nan
- #                    warnings.warn('The number of missing samples exceeded the '
- #                                  'missing_tol threshold.')
- #                insert_idx.append([idx_] * nn)
- #            insert_idx = np.hstack(insert_idx)
- #            data_ = np.insert(data_, insert_idx, missing_data, axis=0)
- #        # data_ dimensions are samples by channels. transpose for MNE.
- #        data_ = data_[start:stop, 1:].T
- #        _mult_cal_one(data, data_, idx, cals, mult)
-
-
-
+    print("Saving eeg data to fif file {}.fif".format(eeg_fname))
+    print("Saving event data to fif file {}.fif".format(event_fname))
+    custom_epochs.save('{}-epo.fif'.format(eeg_fname))
+    mne.write_events('{}-eve.fif'.format(event_fname), event_data)

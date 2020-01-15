@@ -6,9 +6,10 @@ created 1/13/20
 
 Helper functions for building experiments quicker!
 """
-from psychopy import gui, data, core, visual, event
+from psychopy import gui, data, core, visual, event, monitors
 from psychopy.tools.filetools import toFile
 import subprocess
+
 
 def get_info(name):
     """
@@ -62,8 +63,8 @@ def save_data(handler, win, inf, ex=False):
     None
     """
 
-    file_name = "{}_{}_sess{}".format(inf['Date'], inf['Participant'], inf['Session'])
-    handler.saveAsWideText("../data/psycphys/" + file_name + ".csv")
+    file_name = "psyc_{}_session{}_{}".format(inf['Participant'], inf['Session'], inf['Date'])
+    handler.saveAsWideText("../data/psyc/" + file_name + ".csv")
     win.saveFrameIntervals(fileName="../data/log/" + file_name + ".txt", clear=True)
 
     if ex:
@@ -126,6 +127,7 @@ def time_calc(num_blocks, num_conditions, trial_dur, num_datapoints=20):
     num_trials = num_trials_per_block * num_blocks
 
     return block_dur, num_trials, session_dur
+
 
 def get_screen(name, debug, cmd=True):
 

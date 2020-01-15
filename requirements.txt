@@ -1,7 +1,6 @@
 --index-url https://pypi.python.org/simple/
 
-pyopenbci
-pylsl
-sklearn
-numpy
-mne
+# pyopenbci
+# pylsl
+# numpy
+# mne
