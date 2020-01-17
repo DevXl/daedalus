@@ -64,8 +64,8 @@ def save_data(handler, win, inf, ex=False):
     """
 
     file_name = "psyc_{}_session{}_{}".format(inf['Participant'], inf['Session'], inf['Date'])
-    handler.saveAsWideText("../data/psyc/" + file_name + ".csv")
-    win.saveFrameIntervals(fileName="../data/log/" + file_name + ".txt", clear=True)
+    handler.saveAsWideText("data/psyc/" + file_name + ".csv")
+    win.saveFrameIntervals(fileName="data/log/" + file_name + ".txt", clear=True)
 
     if ex:
         exit_msg = visual.TextStim(win=win, pos=[0, 0], height=0.5, wrapWidth=10, text="Exiting...")
