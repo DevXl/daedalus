@@ -46,27 +46,19 @@ def get_streams(stream_names, chunk_size):
     -------
     inlets (dict) streams and their time correction
     """
-    for stream in stream_names:
-        print("looking for {} stream...".format(stream))
-
     inlets = collections.defaultdict(dict)
-    stream_types = []
-    for name in stream_names:
+    for idx, name in enumerate(stream_names):
+        print("looking for {} stream...".format(name))
         stream = resolve_byprop('name', name, timeout=2)
-        if name == "markers":
-            inlet = StreamInlet(stream[0])
+        if len(stream):
+            print("{} stream found".format(name))
         else:
-            inlet = StreamInlet(stream[0], max_chunklen=chunk_size)
-        s_type = inlet.info().type()
-        if s_type == "EEG" and len(stream) == 0:
-            raise RuntimeError("Cant find any EEG stream")
+            raise RuntimeError("Can't find the specified stream")
 
-        stream_types.append(s_type)
-        inlets[name]["stream"] = inlet
-        inlets[name]["init_correction"] = inlet.time_correction()
-
-    for key, val in dict(collections.Counter(stream_types)).items():
-        print("Found {} streams of {} data: ".format(val, key))
+        if name == "Markers":
+            inlets[name] = StreamInlet(stream[0])
+        else:
+            inlets[name] = StreamInlet(stream[0], max_chunklen=chunk_size)
 
     return inlets
 
@@ -139,21 +131,13 @@ def get_raw_eeg(eeg_inlet, marker_inlet, record_time, chunk_size, debug=False):
         else:
             raw_df = np.concatenate((raw_df, this_chunk), axis=1)
 
-    # construct the epoch data frame for MNE structure (n_epochs, n_channels, n_samples)
-    epoch_df = np.array([])
-    for trig in range(len(marker_ls)):
-        start = int(trig*chunk_size)
-        stop = int(trig*chunk_size) + int(3*250)
-        this_epoch = raw_df[:, start:stop]
-        np.append(epoch_df, this_epoch)
-
     # the event data frame
     event_df = np.array(list(marker_ls))
 
-    return raw_df, epoch_df, event_df, drop_log
+    return raw_df, event_df, drop_log
 
 
-def save_data(eeg_data, event_data, epoch_data, event_id, chan_names, subj, sfreq=250):
+def save_data(eeg_data, event_data, chan_names, subj, sfreq=250):
     """
 
     Parameters
@@ -185,11 +169,11 @@ def save_data(eeg_data, event_data, epoch_data, event_id, chan_names, subj, sfre
     )
 
     tmin = -0.1
-    custom_epochs = mne.EpochsArray(epoch_data, mne_info, event_data, tmin, event_id)
+    # custom_epochs = mne.EpochsArray(epoch_data, mne_info, event_data, tmin, event_id)
     raw_mne = mne.io.RawArray(eeg_data, mne_info)
 
     print("Saving eeg data to fif file {}.fif".format(fname))
     print("Saving event data to fif file {}.fif".format(fname))
-    custom_epochs.save('{}epoch_{}-epo.fif'.format(dir_name, fname))
-    raw_mne.save('{}raw_{}.fif'.format(dir_name, fname))
+    # custom_epochs.save('{}epoch_{}-epo.fif'.format(dir_name, fname))
+    raw_mne.save('{}{}_raw.fif'.format(dir_name, fname))
     mne.write_events('{}event_{}-eve.fif'.format(dir_name, fname), event_data)
