@@ -15,46 +15,31 @@ import mne
 import os
 
 
-def broadcast_cyton(device, port="/dev/ttyUSB0"):
-
-    SCALE_FACTOR_EEG = (4500000) / 24 / (2 ** 23 - 1)  # uV/count
-
-    print("Creating LSL stream for EEG. \nName: OpenBCIEEG\nID: OpenBCItestEEG\n")
-
-    info_eeg = StreamInfo('OpenBCIEEG', 'EEG', 8, 250, 'float32', 'OpenBCI')
-
-    outlet_eeg = StreamOutlet(info_eeg)
-
-    def lsl_streamers(sample):
-        outlet_eeg.push_sample(np.array(sample.channels_data) * SCALE_FACTOR_EEG)
-
-    board = OpenBCICyton(port=port)
-
-    board.start_stream(lsl_streamers)
-
-
 def get_streams(stream_names, chunk_size):
     """
-    Receives all the streams
+    Receives all specified streams
 
     Parameters
     ----------
-    stream_names (list) name of all the streams specified when creating
-        the outlet
+    stream_names (list) name of all the outlets
+    chunk_size (int) number of chunks in each sample
 
     Returns
     -------
-    inlets (dict) streams and their time correction
+    inlets (dict) LSL streams with their name as key and StreamInlet object as value
     """
     inlets = collections.defaultdict(dict)
-    for idx, name in enumerate(stream_names):
+
+    # loop through the names and find the streams that match
+    for name in stream_names:
         print("looking for {} stream...".format(name))
         stream = resolve_byprop('name', name, timeout=2)
         if len(stream):
-            print("{} stream found".format(name))
+            print("{} found!\n\n".format(name))
         else:
-            raise RuntimeError("Can't find the specified stream")
+            raise RuntimeError("Can't find the stream")
 
+        # don't want to read the markers in chunks
         if name == "Markers":
             inlets[name] = StreamInlet(stream[0])
         else:
@@ -63,35 +48,65 @@ def get_streams(stream_names, chunk_size):
     return inlets
 
 
-def get_raw_eeg(eeg_inlet, marker_inlet, record_time, chunk_size, debug=False):
+def get_raw_eeg(inlets, record_time, chunk_size, debug=False):
+    """
+     Reads LSL inlets and parses data to MNE-fif format
 
+     Parameters
+     -----------
+     inlets (dict) LSLStream inlets: one EEG and one Markers
+     record_time (float) duration to record data
+     chunk_size (int) number of chunks in each sample
+     debud (bool) show debug messages or not
+
+     Returns
+     -------
+     eeg_data (dict) holding raw_eeg, raw_events, and the drop_log
+    """ 
+    # get the EEG and Markers inlets into local variables
+    eeg_found = 0
+    for key, val in inlets.items():
+        if val.info().type() == "EEG":
+            eeg_inlet = val
+            eeg_found += 1
+        if val.info().type() == "Markers":
+            marker_inlet = val
+    
+    if eeg_found > 1:
+        raise RuntimeError("Only one EEG stream is accepted but {} provided.".format(eeg_found))
+
+    # setup values for EEG
     eeg_info = eeg_inlet.info()
     n_chans = eeg_info.channel_count()
-
     eeg_ls = collections.deque()
     eeg_ts = collections.deque()
     eeg_tc = collections.deque()
+
+    # setup values for Markers
     marker_ls = collections.deque()
     marker_ts = collections.deque()
     marker_prev = collections.deque()
+
+    # keep track of the recording
     drop_log = collections.deque()
     chunk_num = 1
-    clock = core.MonotonicClock()
 
+    # start timing
     t_init = local_clock()
     eeg_correction = eeg_inlet.time_correction()
     if marker_inlet:
         marker_correction = marker_inlet.time_correction()
 
-    print("Start getting raw data")
+    # start recording
+    if debug:
+        print("Start getting raw data")
 
     while (local_clock() - t_init) < record_time:
-
         try:
             eeg_data, eeg_timestamp = eeg_inlet.pull_chunk(timeout=2, max_samples=chunk_size)
             if eeg_timestamp:
                 eeg_correction = eeg_inlet.time_correction()
-                if len(eeg_data) < chunk_size:
+                if len(eeg_data) != chunk_size:
                     drop_log.append(chunk_num)
                 else:
                     eeg_ls.append(eeg_data)
