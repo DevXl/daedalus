@@ -84,8 +84,6 @@ def get_raw_eeg(inlets, record_time, chunk_size, debug=False):
 
     # setup values for Markers
     marker_ls = collections.deque()
-    marker_ts = collections.deque()
-    marker_prev = collections.deque()
 
     # keep track of the recording
     drop_log = collections.deque()
@@ -133,7 +131,7 @@ def get_raw_eeg(inlets, record_time, chunk_size, debug=False):
         except KeyboardInterrupt:
             break
 
-    t_end = clock.getTime()
+    t_end = local_clock().getTime()
     tot_rec_t = t_end - t_init
     tot_smps = chunk_num - 1
 
@@ -149,7 +147,10 @@ def get_raw_eeg(inlets, record_time, chunk_size, debug=False):
     # the event data frame
     event_df = np.array(list(marker_ls))
 
-    return raw_df, event_df, drop_log
+    # data dict
+    eeg_data = {"eeg_raw": raw_df, "event_raw": event_df, "drop_raw": drop_log}
+
+    return eeg_data
 
 
 def save_data(eeg_data, event_data, chan_names, subj, sfreq=250):
@@ -166,13 +167,13 @@ def save_data(eeg_data, event_data, chan_names, subj, sfreq=250):
 
     """
     curr_date = data.getDateStr()
-    dir_name = os.path.join(os.getcwd(), "data/eeg/")
+    dir_name = os.path.join(os.getcwd(), "data", "eeg")
     fname = "{}_session{}_{}".format(subj["Participant"], subj["Session"], curr_date)
 
     print("Saving eeg data to csv file {}.csv".format(fname))
     print("Saving event data to csv file {}.csv".format(fname))
-    np.savetxt("{}raw_{}.csv".format(dir_name, fname), eeg_data, delimiter=",")
-    np.savetxt("{}event_{}.csv".format(dir_name, fname), event_data, delimiter=",")
+    np.savetxt("{}{}_raw.csv".format(dir_name, fname), eeg_data, delimiter=",")
+    np.savetxt("{}{}_eve.csv".format(dir_name, fname), event_data, delimiter=",")
 
     montage = 'standard_1005'
 
@@ -183,12 +184,10 @@ def save_data(eeg_data, event_data, chan_names, subj, sfreq=250):
         montage=montage
     )
 
-    tmin = -0.1
     # custom_epochs = mne.EpochsArray(epoch_data, mne_info, event_data, tmin, event_id)
     raw_mne = mne.io.RawArray(eeg_data, mne_info)
 
     print("Saving eeg data to fif file {}.fif".format(fname))
     print("Saving event data to fif file {}.fif".format(fname))
-    # custom_epochs.save('{}epoch_{}-epo.fif'.format(dir_name, fname))
     raw_mne.save('{}{}_raw.fif'.format(dir_name, fname))
     mne.write_events('{}event_{}-eve.fif'.format(dir_name, fname), event_data)
