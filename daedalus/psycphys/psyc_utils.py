@@ -1,14 +1,15 @@
 #!/usr/bin/env python
 """
-created 1/13/20 
+created 1/13/20
 
 @author DevXl
 
 Helper functions for building experiments quicker!
 """
 from psychopy import gui, data, core, visual, event, monitors
-from psychopy.tools.filetools import toFile
+from psychopy.tools.filetools import fromFile, toFile
 import subprocess
+import os
 
 
 def get_info(name):
@@ -182,4 +183,3 @@ def get_screen(name, debug, cmd=True):
     exp_window.recordFrameIntervals = True
 
     return exp_window, mon_info, exp_monitor
-
