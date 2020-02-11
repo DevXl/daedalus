@@ -4,11 +4,12 @@ created 2/10/20
 
 @author DevXl
 
-DESCRIPTION
+Implements Basic PsychoPhysics Experiment as a template
 """
 from ..utils import errors
 from psychopy import gui, data, core, monitors, visual, info, event
 from psychopy.iohub.devices import Computer
+from psychopy.iohub.utils import yload, yloader
 from pathlib import Path
 import json
 import csv
@@ -22,18 +23,22 @@ class BaseExperiment:
     EXP_TYPE = "BASE"
 
     def __init__(self, path):
-        self.home = Path(path)
-        self.experiment_params = dict()
-        self.subject_init_params = dict()
-        self.subject_session_params = dict()
-        self.hardware_params = dict()
-        self.error_log = list()
-        self._window = None
-        self._monitor = None
-        self._stimuli = None
-        self._handler = None
+        self.home = PosixPath(path)
+        self.experiment_params: Dict = {}
+        self.subject_init_params: Dict = {}
+        self.subject_session_params: Dict = {}
+        self.hardware_params: Dict = {}
+        self.error_log: List[str] = []
+        self.runtime_info: Dict = {}
+        self.condition_file: Path = PosixPath(".")
+        self.config_file: Path = PosixPath(".")
+        self.stimuli = None
+        self._date = data.getDateStr()
 
         self._load_initial_params()
+        self.get_session_info
+        self.data_file = self._save_data()
+        self.experiment_handler, self.trial_handler = self.generate_handler(self.condition_file)
 
     @abc.abstractmethod
     def run(self):
@@ -52,22 +57,53 @@ class BaseExperiment:
         if 'escape' in event.getKeys():
             self._save_data()
             self._close()
+    
+    def generate_handler(self, condition_file):
+        
+        _conditions = data.importConditions(condition_file)
+        _trial_handler = data.TrialHandler(trialList=_conditions,
+                                           nReps=self.experiment_params.get("n_reps", 1),
+                                           method="fullRandom",
+                                           extraInfo=self.subject_session_params,
+                                           originPath=-1,
+                                           name="Trial Handler")
+        _experiment_handler = data.ExperimentHandler(
+            name=self.experiment_params.get("name", "ExperimentHandler"),
+            version=self.experiment_params.get("ver", 0),
+            runtimeInfo=self.runtime_info,
+            extraInfo=self.experiment_params,
+            savePickle=False,
+            saveWideText=True,
+            dataFileName=self.data_file
+        )
+        
+        return _experiment_handler, _trial_handler
 
-    def _generate_stimuli(self):
-        pass
+    @property
+    def stimuli(self):
+        return self.stimuli
+
+    @stimuli.setter
+    def stimuli(self, val):
+        self.stimuli = val
 
     def _save_data(self):
-        pass
+        
+        _data_file = self.data_dir / self.subject_session_params["Initials"] / f"session{self.subject_session_params['Session']}_{self._date}.csv"
+        return _data_file
 
-    def _generate_window(self, this_session_params):
+    def generate_window(self, params):
 
-        _monitor_name = this_session_params.get("Monitor", None)
+        _monitor_name = params.get("Monitor", None)
         if _monitor_name not in monitors.getAllMonitors():
             self.calibrate_monitors(self.hardware_params.get("monitors", False).get(_monitor_name, False))
 
-        self._monitor = monitors.Monitor(name=_monitor_name)
-        self._window = visual.Window(fullscr=True, monitor=self._monitor)
-
+        this_monitor = monitors.Monitor(name=_monitor_name)
+        this_window = visual.Window(fullscr=True, monitor=self._monitor)
+        this_window.recordFrameIntervals = True
+        
+        return this_monitor, this_window
+    
     def _get_session_info(self):
 
         _config_dlg = gui.Dlg(title=self.experiment_params.get("name", "New Participant"),
@@ -84,7 +120,8 @@ class BaseExperiment:
         _session_params = _config_dlg.show()
 
         if _config_dlg.OK:
-            self._generate_window(_session_params)
+            
+            self._monitor, self._window = self.generate_window(_session_params)
 
             if _session_params.get("Debug", True):
                 raise UserWarning("Running in DEBUG mode. No checks are performed.")
@@ -96,32 +133,46 @@ class BaseExperiment:
             self._close()
 
     def _load_initial_params(self):
-
-        _files = list(f.name for f in self.home.iterdir() if f.is_file())
-        _dirs = list(d for d in self.home.iterdir() if d.is_dir())
+        
         self.data_dir = self.home / "data"
+        self.config_dir = self.home / "config"
+
+        _files = list(f for f in self.config_dir.iterdir() if f.is_file())
+        _dirs = list(d for d in self.home.iterdir() if d.is_dir())
 
         for param_file in _files:
+            
             try:
-                with open(param_file, 'r') as json_file:
-                    try:
-                        this_params = json.load(json_file)
-                        if param_file.startswith("subj"):
-                            self.subject_init_params = this_params
-                        elif param_file.startswith("exp"):
-                            self.experiment_params = this_params
-                        elif param_file.startswith("hardware"):
-                            self.hardware_params = this_params
-                        else:
+                if param_file.name.endswith(".json"):
+                    with open(param_file, 'r') as json_file:
+                        try:
+                            this_json = json.load(json_file)
+                            
+                            if param_file.name.startswith("subj"):
+                                self.subject_init_params = this_json
+                            elif param_file.name.startswith("exp"):
+                                self.experiment_params = this_json
+                            elif param_file.name.startswith("hardware"):
+                                self.hardware_params = this_json
+                            else:
+                                self.error_log.append(param_file)
+                                raise RuntimeWarning(f"{param_file.name} is not defined for {self.EXP_TYPE} experiments.")
+                        except TypeError:
                             self.error_log.append(param_file)
-                            raise RuntimeWarning(f"{param_file} is not defined for {self.EXP_TYPE} experiments.")
-                    except TypeError:
-                        self.error_log.append(param_file)
-                        raise RuntimeWarning(f"{param_file} is not a valid JSON file.")
+                            raise RuntimeWarning(f"{param_file.name} is not a valid JSON file.")
+                    
+                    elif param_file.name.endswith(".csv"):
+                        self.condition_file = param_file
+                        
+                    elif param_file.name.endswith(".yaml"):
+                        self.config_file = param_file
+                    
+                    else:
+                        raise FileNotFoundError("No parameter/configuration/condition file was found!")
 
             except OSError:
                 self.error_log.append(param_file)
-                raise RuntimeWarning(f"I cant open the {param_file} file.")
+                raise RuntimeWarning(f"I cant open the {param_file.name} file.")
 
         if not self.data_dir.is_dir():
             try:
@@ -163,6 +214,7 @@ class BaseExperiment:
                     csv_writer.writerow([self.subject_init_params["Initials"], [0]])
             except PermissionError:
                 raise Exception(errors.permission_msg("All Subjects' Log", 'file'))
+        
         except OSError:
             raise Exception(f"{self.all_subjects_log.name} is not a valid CSV file")
 
@@ -197,10 +249,12 @@ class BaseExperiment:
             for proc in _run_info["systemUserProcFlagged"]:
                 raise ResourceWarning(f"Process with ID {proc[1]} is flagged. "
                                       f"Close the {proc[0]} application.")
+                
+        self.runtime_info = _run_info
 
     def _close(self):
         """Close the experiment runtime."""
         self._window.clos()
         core.quit()
-        sys.exit()
+        sys.exit(1)
 

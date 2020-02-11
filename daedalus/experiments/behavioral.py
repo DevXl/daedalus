@@ -14,10 +14,13 @@ class EyeTracking(BaseExperiment):
 
     EXP_TYPE = "EyeTracking"
 
-    def __init__(self, path):
+    def __init__(self, path, **kwargs):
         super().__init__(path)
-        self.hub = None
-        self.devices = None
-
-
-    def
+        kwagrs["iohub_config_name"] = self.config_file
+        self._hub = connect.launchHubServer(kwargs)
+        self.devices = self._hub.devices
+        
+        
+            
+        
+        

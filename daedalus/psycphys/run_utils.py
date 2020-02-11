@@ -18,14 +18,14 @@ def check_paths(path, *argv):
 
     project_home = path.parent.parent
     paths["home"] = project_home
-    config_files = list(map(lambda p: project_home / "config" / p, argv))
-    for i, path in config_files:
+    config_files = list(map(lambda p: project_home / "config" / p, argv[0]))
+    for i, path in enumerate(config_files):
         if path.is_file():
-            paths[argv[i]] = path
+            paths[argv[0][i]] = path
             # with open(path, 'r') as config_file:
             #     configs.update(json.load(config_file))
         else:
-            raise FileNotFoundError(f"I cant locate the {argv[i]} file.")
+            raise FileNotFoundError(f"I cant locate the {argv[0][i]} file.")
 
     data_dir = project_home / "data"
     logExp_file = data_dir / "logExperiment.log"
@@ -36,15 +36,8 @@ def check_paths(path, *argv):
     else:
         raise NotADirectoryError
 
-    info = {"subject": "", "session": range(0, 4)}
-    init_gui = gui.DlgFromDict(info, title="Experiment initialization",
-                               labels={"subject": "Participant initials:",
-                                       "session": "Session"},
-                               tip={"subject": "in capital letters separated by dots e.g. K.I.R",
-                                    "session": "0: Training"},
-                               )
-    init_gui.addField(label="Participant initials:", tip="in capital letters separated by dots e.g. K.I.R")
-    init_gui.addField(label="Session", choices=range(0, 4), tip="0: Training")
+    info = {"subject": "", "session": [0, 1, 2, 3, 4]}
+    init_gui = gui.DlgFromDict(info, title="Experiment initialization")
 
     if init_gui.OK:
         if any(ch.isdigit() for ch in info['subject']):
