@@ -6,14 +6,13 @@ created 2/10/20
 
 Implements Basic PsychoPhysics Experiment as a template
 """
+from typing import Dict, List, AnyStr
 from ..utils import errors
 from psychopy import gui, data, core, monitors, visual, info, event
 from psychopy.iohub.devices import Computer
-from psychopy.iohub.utils import yload, yloader
-from pathlib import Path
+from pathlib import PosixPath
 import json
 import csv
-import abc
 from math import isclose
 import sys
 
@@ -22,27 +21,23 @@ class BaseExperiment:
 
     EXP_TYPE = "BASE"
 
-    def __init__(self, path):
+    def __init__(self, path: PosixPath):
         self.home = PosixPath(path)
         self.experiment_params: Dict = {}
         self.subject_init_params: Dict = {}
         self.subject_session_params: Dict = {}
         self.hardware_params: Dict = {}
-        self.error_log: List[str] = []
+        self.error_log: List[AnyStr] = []
         self.runtime_info: Dict = {}
-        self.condition_file: Path = PosixPath(".")
-        self.config_file: Path = PosixPath(".")
+        self.condition_file: PosixPath = PosixPath()
+        self.config_file: PosixPath = PosixPath()
         self.stimuli = None
         self._date = data.getDateStr()
 
         self._load_initial_params()
-        self.get_session_info
+        self._get_session_info()
         self.data_file = self._save_data()
         self.experiment_handler, self.trial_handler = self.generate_handler(self.condition_file)
-
-    @abc.abstractmethod
-    def run(self):
-        """All experiment code should go here"""
 
     @staticmethod
     def calibrate_monitors(mons):
@@ -161,14 +156,14 @@ class BaseExperiment:
                             self.error_log.append(param_file)
                             raise RuntimeWarning(f"{param_file.name} is not a valid JSON file.")
                     
-                    elif param_file.name.endswith(".csv"):
-                        self.condition_file = param_file
-                        
-                    elif param_file.name.endswith(".yaml"):
-                        self.config_file = param_file
+                elif param_file.name.endswith(".csv"):
+                    self.condition_file = param_file
+
+                elif param_file.name.endswith(".yaml"):
+                    self.config_file = param_file
                     
-                    else:
-                        raise FileNotFoundError("No parameter/configuration/condition file was found!")
+                else:
+                    raise FileNotFoundError("No parameter/configuration/condition file was found!")
 
             except OSError:
                 self.error_log.append(param_file)
