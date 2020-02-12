@@ -19,7 +19,7 @@ import sys
 
 class BaseExperiment:
 
-    EXP_TYPE = "BASE"
+    EXP_TYPE = "BASIC"
 
     def __init__(self, path: PosixPath):
         self.home = PosixPath(path)
@@ -31,7 +31,7 @@ class BaseExperiment:
         self.runtime_info: Dict = {}
         self.condition_file: PosixPath = PosixPath()
         self.config_file: PosixPath = PosixPath()
-        self.stimuli = None
+        self.stimuli: Dict[AnyStr, visual] = {}
         self._date = data.getDateStr()
 
         self._load_initial_params()
