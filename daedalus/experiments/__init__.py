@@ -8,7 +8,8 @@ Implements Basic PsychoPhysics Experiment as a template
 """
 from typing import Dict, List, AnyStr
 from ..utils import errors
-from psychopy import gui, data, core, monitors, visual, info, event
+from psychopy import gui, data, core, monitors, visual, info, event, logging
+from datetime import date
 from psychopy.iohub.devices import Computer
 from pathlib import PosixPath
 import json
@@ -18,11 +19,30 @@ import sys
 
 
 class BaseExperiment:
+    """
+    Every experiment has the following components:
+        - Subject
+        - Display
+        - Stimuli
+        - Response
+        - Configurations
+        - Handler
+        - Data
+        - Logs
+    """
 
     EXP_TYPE = "BASIC"
 
     def __init__(self, path: PosixPath):
         self.home = PosixPath(path)
+        self.subject: Dict = {}
+        self.configuration: Dict = {}
+        self.display: Dict = {}
+        self.stimuli: Dict = {}
+        self.response: Dict = {}
+        self.handler: Dict = {}
+        self.data: Dict = {}
+
         self.experiment_params: Dict = {}
         self.subject_init_params: Dict = {}
         self.subject_session_params: Dict = {}
@@ -38,6 +58,140 @@ class BaseExperiment:
         self._get_session_info()
         self.data_file = self._save_data()
         self.experiment_handler, self.trial_handler = self.generate_handler(self.condition_file)
+
+    def _load_configs(self) -> Dict:
+        """Parses the provided config files into the configurations dictionary"""
+        config_file_types = ("json", "yaml", "csv")
+
+        # files are usually located under "config" folder
+        config_dir = self.home / "config"
+        if config_dir.is_dir():
+            config_files = list(f for f in self.config_dir.iterdir() if f.is_file())
+        else:
+            # sometimes they might not be there
+            config_files = list(f for f in self.home.iterdir() if (f.is_file() and f.name.endswith(config_file_types)))
+
+        # load the files and add them to the dict
+        loaded_files = {
+            "JSON": {},
+            "CSV_paths": [],
+            "YAML_paths": []
+        }
+        for _file in config_files:
+            if _file.name.endswith(".json"):
+                with open(_file, 'r') as json_file:
+                    try:
+                        this_json = json.load(json_file)
+                        loaded_files["JSON"].update(this_json)
+                    except Exception as err:
+                        print(f"I couldn't open the JSON file {_file.name}.")
+                        print(err)
+            elif _file.name.endswith(".csv"):
+                loaded_files["CSV_paths"].append(str(_file))
+            elif _file.name.endswith(".yaml"):
+                loaded_files["YAML_paths"].append(str(_file))
+            else:
+                raise FileNotFoundError("No parameter/configuration/condition file was found. I have to abort.")
+
+        return loaded_files
+
+    def _get_session_info(self) -> Dict:
+        """Shows a GUI to get session info"""
+
+        # construct the GUI's fields based on specified parameters in files
+        params = self._load_configs()
+        exp_params = params["JSON"]["EXPERIMENT"]
+        subj_params = params["JSON"]["SUBJECT"]
+        monitor_params = params["HARDWARE"]["Display"]
+
+        # gui setup
+        subject_dlg = gui.Dlg(title=exp_params["title"], labelButtonOK="Next")
+
+        # subject info
+        subject_dlg.addText("-----------------------------", color="Blue")
+        subject_dlg.addText('|  Participant Information  |', color='Blue')
+        subject_dlg.addText("-----------------------------", color="Blue")
+        for key, val in subj_params:
+            subject_dlg.addField(f"{key}:", val)
+
+        # experiment info
+        subject_dlg.addText("-----------------------------", color="Blue")
+        subject_dlg.addText("|  Experiment Information   |", color="Blue")
+        subject_dlg.addText("-----------------------------", color="Blue")
+        subject_dlg.addField("Experimenter:", exp_params["users"])
+        subject_dlg.addFixedField("Monitor:", monitor_params["name"])
+        subject_dlg.addFixedField("Date:", date.today())
+        subject_dlg.addFixedField('Version:', exp_params["version"])
+
+        # checks
+        subject_dlg.addText("-----------------------------", color="Red")
+        subject_dlg.addText("|       Configuration        |", color="Red")
+        subject_dlg.addText("-----------------------------", color="Red")
+        subject_dlg.addField("SYSTEM_STATUS", True)
+        subject_dlg.addField("INPUT_INFO", True)
+        subject_dlg.addField("DEBUG_MODE", False)
+
+        # show the dialogue
+        session_info = subject_dlg.show()
+        if subject_dlg.OK:
+
+            # make gui to show requested check results or to warn the user
+            warning_dlg = gui.Dlg(title="Check results", labelButtonOK="Start", labelButtonCancel="Abort and fix")
+
+            # check input
+            warning_dlg.addText("INPUT CHECKS")
+            warning_dlg.addText("-----------------------------------")
+            if session_info["INPUT_INFO"]:
+                session_checks = self._check_user_input()
+                if session_checks:
+                    for e in session_checks:
+                        warning_dlg.addText(f"FAILED: {e}", color="Red")
+                else:
+                    warning_dlg.addText("All checks have PASSED.", color="Green")
+            else:
+                warning_dlg.addText("I highly advise against running no checks on participant's information.",
+                                    color="Red")
+
+            # check system
+            warning_dlg.addText("SYSTEM CHECKS")
+            warning_dlg.addText("-----------------------------------")
+            if session_info["SYSTEM_STATUS"]:
+                system_checks = self._check_system()
+                if system_checks:
+                    for e in system_checks:
+                        warning_dlg.addText(f"FAILED: {e}", color="Red")
+                else:
+                    warning_dlg.addText("All checks have PASSED.", color="Green")
+            else:
+                warning_dlg.addText("Only skip system checks if this is the 2nd+ time this script is running today.",
+                                    color="Red")
+
+            if session_info["Debug"]:
+                warning_dlg.addText("DEBUG MODE ON", color="Red")
+
+            warning_dlg.show()
+            if warning_dlg.OK:
+                checks_log = 
+
+        else:
+            print("User Abort.")
+            self._close()
+
+    # Getters and Setters
+    @property
+    def subject(self) -> Dict:
+        return self.subject
+
+    @subject.setter
+    def subject(self, val: Dict):
+        self.subject = val
+
+
+
+
+
+
+
 
     @staticmethod
     def calibrate_monitors(mons):
@@ -99,33 +253,7 @@ class BaseExperiment:
         
         return this_monitor, this_window
     
-    def _get_session_info(self):
 
-        _config_dlg = gui.Dlg(title=self.experiment_params.get("name", "New Participant"),
-                             labelButtonOK="Validate")
-        _config_dlg.addText('Participant\'s Information', color='Blue')
-        for key, val in self.subject_init_params.items():
-            _config_dlg.addField(f"{key}:", val)
-
-        _config_dlg.addText("Configuration", color="Blue")
-        _config_dlg.addField("Monitor:", [m for m in self.hardware_params.get("monitors", None)])
-        _config_dlg.addFixedField("Date:", data.getDateStr())
-        _config_dlg.addFixedField('Version:', [v for v in self.experiment_params.get("ver", 0)])
-        _config_dlg.addField("Debug:", False)
-        _session_params = _config_dlg.show()
-
-        if _config_dlg.OK:
-            
-            self._monitor, self._window = self.generate_window(_session_params)
-
-            if _session_params.get("Debug", True):
-                raise UserWarning("Running in DEBUG mode. No checks are performed.")
-            else:
-                self._check_info_input()
-                self._check_system()
-        else:
-            print("User Abort.")
-            self._close()
 
     def _load_initial_params(self):
         
