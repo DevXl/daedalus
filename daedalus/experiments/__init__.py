@@ -6,7 +6,7 @@ created 2/10/20
 
 Implements Basic PsychoPhysics Experiment as a template
 """
-from typing import Dict, List, Literal
+from typing import Dict, List, Literal, Union, TypeVar
 from abc import abstractmethod
 from ..utils import errors
 from psychopy import gui, data, core, monitors, visual, info, event, logging
@@ -14,7 +14,7 @@ from datetime import date
 from psychopy.iohub.devices import Computer
 from pathlib import PosixPath
 import json
-import csv
+import pandas as pd
 from math import isclose
 import sys
 
@@ -34,8 +34,9 @@ class BaseExperiment:
 
     EXP_TYPE = "BASIC"
 
-    def __init__(self, path: PosixPath):
-        self.home = PosixPath(path)
+    def __init__(self, path: str, name: str):
+        self.HOME_DIR = PosixPath(path)
+        self.NAME = name
         self.session: Dict = {}
         self.configuration: Dict = {}
         self.display: Dict = {}
@@ -45,33 +46,51 @@ class BaseExperiment:
         self.data: Dict = {}
         self.logs: Dict = {}
 
-        # self.experiment_params: Dict = {}
-        # self.subject_init_params: Dict = {}
-        # self.subject_session_params: Dict = {}
-        # self.hardware_params: Dict = {}
-        # self.error_log: List[AnyStr] = []
-        # self.runtime_info: Dict = {}
-        # self.condition_file: PosixPath = PosixPath()
-        # self.config_file: PosixPath = PosixPath()
-        # self.stimuli: Dict[AnyStr, visual] = {}
-        # self._date = data.getDateStr()
+        self.configuration = self._load_configs()
 
-        # self._load_initial_params()
-        # self._get_session_info()
-        # self.data_file = self._save_data()
-        # self.experiment_handler, self.trial_handler = self.generate_handler(self.condition_file)
+    def load_experiment_metadata(self) -> Union[pd.DataFrame, None]:
+        """Loads information about participants"""
+
+        meta_header = ["subject"]
+        experiment_metadata = None
+
+        # experiment metadata will be in a csv file under exp home folder
+        meta_file = self.HOME_DIR / f"{self.NAME}_metadata.csv"
+        if meta_file.is_file():
+            try:
+                experiment_metadata = pd.read_csv(meta_file)
+            except Exception as err:
+                print("I can't open the experiment metadata file.")
+                print(err)
+        else:
+            try:
+                meta_file.touch()  # make an empty file if it's not there
+            except Exception as err:
+                print("I can't create the experiment metadata file.")
+                print(err)
+
+        return experiment_metadata
+
+    def load_subject_metadata(self, subj_name: str):
+        """Loads information about a single subject"""
+
+        subject_metadata = None
+
+        # subject metadata will be a csv file in subject's data folder
+        meta_file = self.HOME_DIR / "data" / f"{subj_name}_meta.csv"  # TODO: don't hardcode
+        if meta_file.is_file():
+                meta_file = _dir / "metadata.csv"
+
 
     def _load_configs(self) -> Dict:
-        """Parses the provided config files into the configurations dictionary"""
-        config_file_types = ("json", "yaml", "csv")
+        """Parses the provided config files (located under config/) into the configurations dictionary"""
 
         # files are usually located under "config" folder
-        config_dir = self.home / "config"
+        config_dir = self.HOME_DIR / "config"
         if config_dir.is_dir():
             config_files = list(f for f in self.config_dir.iterdir() if f.is_file())
         else:
-            # sometimes they might not be there
-            config_files = list(f for f in self.home.iterdir() if (f.is_file() and f.name.endswith(config_file_types)))
+            raise FileNotFoundError(f"I didn't find the config folder under {self.HOME_DIR}")  # TODO: add open file
 
         # load the files and add them to the dict
         loaded_files = {
@@ -81,13 +100,13 @@ class BaseExperiment:
         }
         for _file in config_files:
             if _file.name.endswith(".json"):
-                with open(_file, 'r') as json_file:
-                    try:
+                try:
+                    with open(_file, 'r') as json_file:
                         this_json = json.load(json_file)
                         loaded_files["JSON"].update(this_json)
-                    except Exception as err:
-                        print(f"I couldn't open the JSON file {_file.name}.")
-                        print(err)
+                except Exception as err:
+                    print(f"I couldn't open the JSON file {_file.name}.")
+                    print(err)
             elif _file.name.endswith(".csv"):
                 loaded_files["CSV_paths"].append(str(_file))
             elif _file.name.endswith(".yaml"):
@@ -101,36 +120,43 @@ class BaseExperiment:
         """Shows a GUI to get session info"""
 
         # construct the GUI's fields based on specified parameters in files
-        params = self._load_configs()
-        exp_params = params["JSON"]["EXPERIMENT"]
-        subj_params = params["JSON"]["SUBJECT"]
-        monitor_params = params["HARDWARE"]["Display"]
+        init_params = self._load_configs()
+        init_exp_params = init_params["JSON"]["EXPERIMENT"]
+        init_subj_params = init_params["JSON"]["SUBJECT"]
+        init_hardware_params = init_params["JSON"]["HARDWARE"]
 
         # gui setup
-        session_dlg = gui.Dlg(title=exp_params["title"], labelButtonOK="Next")
+        session_dlg = gui.Dlg(title=init_exp_params["title"], labelButtonOK="Next")
 
         # subject info
         session_dlg.addText("-----------------------------", color="Blue")
         session_dlg.addText('|  Participant Information  |', color='Blue')
         session_dlg.addText("-----------------------------", color="Blue")
-        for key, val in subj_params:
+        for key, val in init_subj_params:
             session_dlg.addField(f"{key}:", val)
+
+        # devices info
+        session_dlg.addText("-----------------------------", color="Blue")
+        session_dlg.addText("|    Device Information     |", color="Blue")
+        session_dlg.addText("-----------------------------", color="Blue")
+        for _device, _types in init_hardware_params:
+            session_dlg.addField(f"{_device}:", [d["name"] for d in _types])
 
         # experiment info
         session_dlg.addText("-----------------------------", color="Blue")
         session_dlg.addText("|  Experiment Information   |", color="Blue")
         session_dlg.addText("-----------------------------", color="Blue")
-        session_dlg.addField("Experimenter:", exp_params["users"])
-        session_dlg.addField("Monitor:", [n for n in monitor_params)
+        session_dlg.addFixedField("Title:", init_exp_params["title"])
+        session_dlg.addField("Experimenter:", init_exp_params["users"])
         session_dlg.addFixedField("Date:", date.today())
-        session_dlg.addFixedField('Version:', exp_params["version"])
+        session_dlg.addFixedField('Version:', init_exp_params["version"])
 
         # checks
         session_dlg.addText("-----------------------------", color="Red")
         session_dlg.addText("|       Configuration        |", color="Red")
         session_dlg.addText("-----------------------------", color="Red")
         session_dlg.addField("CHECK_SYSTEM_STATUS", True)
-        session_dlg.addField("CHECK_INPUT_INFO", True)
+        session_dlg.addField("CHECK_SUBJECT", True)
         session_dlg.addField("CHECK_DEVICES", True)
         session_dlg.addField("DEBUG_MODE", False)
 
@@ -138,9 +164,20 @@ class BaseExperiment:
         session_info = session_dlg.show()
         if session_dlg.OK:
 
+            # separate info dict
+            for key in init_subj_params.keys():
+                self.session["SUBJECT"][key] = session_info[key]
+
+            for key in init_hardware_params.keys():
+                self.session["HARDWARE"][key] = session_info[key]
+
+            self.session["EXPERIMENT"]["Experimenter"] = session_info["Experimenter"]
+            self.session["EXPERIMENT"]["Date"] = session_info["Date"]
+            self.session["EXPERIMENT"]["Version"] = session_info["Version"]
+
             # run the checks
-            if session_info["CHECK_INPUT_INFO"]:
-                _session_check_results = self._validate_session()
+            if session_info["CHECK_SUBJECT"]:
+                _subject_check_results = self._validate_subject(init_subj_params)
             if session_info["CHECK_SYSTEM_STATUS"]:
                 _sys_check_results = self._validate_sys_status()
             if session_info["CHECK_DEVICES"]:
@@ -148,7 +185,7 @@ class BaseExperiment:
 
             # get the report
             warning_dlg = self._report_check_results([
-                _session_check_results,
+                _subject_check_results,
                 _sys_check_results,
                 _devices_check_results
             ])
@@ -169,15 +206,21 @@ class BaseExperiment:
             print("User Abort.")
             self._close()
 
-    def _validate_session(self) -> List[List]:
+    def _validate_subject(self, init_params: Dict[str, Union[str, int]]) -> List[List]:
+        """Checks for the type of input and history of this subject"""
 
-        for key, val in self.subject_session_params:
-            if (key in self.subject_init_params.keys()) and (not isinstance(val, list)):
-                if not isinstance(val, type(self.subject_init_params[key])):
-                    raise ValueError(f"{key} parameter should be "
-                                     f"{type(self.subject_init_params[key])} not {type(val)}")
+        check_results = []
 
-        self.all_subjects_log = self.data_dir / "subjLog.csv"
+        # validate input type
+        for key, val in self.session["SUBJECT"]:
+            if (key in init_params.keys()) and (not isinstance(val, list)):
+                if not isinstance(val, type(init_params[key])):
+                    check_results.append(f"{key} parameter should be "
+                                         f"{type(self.subject_init_params[key])} not {type(val)}")
+
+        # validate subject history
+        self.data["DIR"] = self.HOME_DIR / "data"
+        if DATA_DIR.is_dir:
 
         try:
             with open(self.all_subjects_log, 'r') as csv_file:
@@ -375,56 +418,6 @@ class BaseExperiment:
         this_window.recordFrameIntervals = True
         
         return this_monitor, this_window
-    
-
-
-    def _load_initial_params(self):
-        
-        self.data_dir = self.home / "data"
-        self.config_dir = self.home / "config"
-
-        _files = list(f for f in self.config_dir.iterdir() if f.is_file())
-        _dirs = list(d for d in self.home.iterdir() if d.is_dir())
-
-        for param_file in _files:
-            
-            try:
-                if param_file.name.endswith(".json"):
-                    with open(param_file, 'r') as json_file:
-                        try:
-                            this_json = json.load(json_file)
-                            
-                            if param_file.name.startswith("subj"):
-                                self.subject_init_params = this_json
-                            elif param_file.name.startswith("exp"):
-                                self.experiment_params = this_json
-                            elif param_file.name.startswith("hardware"):
-                                self.hardware_params = this_json
-                            else:
-                                self.error_log.append(param_file)
-                                raise RuntimeWarning(f"{param_file.name} is not defined for {self.EXP_TYPE} experiments.")
-                        except TypeError:
-                            self.error_log.append(param_file)
-                            raise RuntimeWarning(f"{param_file.name} is not a valid JSON file.")
-                    
-                elif param_file.name.endswith(".csv"):
-                    self.condition_file = param_file
-
-                elif param_file.name.endswith(".yaml"):
-                    self.config_file = param_file
-                    
-                else:
-                    raise FileNotFoundError("No parameter/configuration/condition file was found!")
-
-            except OSError:
-                self.error_log.append(param_file)
-                raise RuntimeWarning(f"I cant open the {param_file.name} file.")
-
-        if not self.data_dir.is_dir():
-            try:
-                self.data_dir.mkdir()
-            except PermissionError:
-                raise Exception(errors.permission_msg("data", 'directory'))
 
 
     def _close(self):
