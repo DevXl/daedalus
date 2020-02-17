@@ -39,7 +39,17 @@ class BaseExperiment:
 
         self.NAME = name
         self.HOME_DIR = PosixPath(path)
-        self.DATA_DIR = self.HOME_DIR / "data"
+        self.DIRS = {
+            "DATA": self.HOME_DIR / "data",
+            "CONFIG": self.HOME_DIR / "config",
+            "LOG": self.HOME_DIR / "log"
+        }
+        self.FILES = {
+            "EXP_META": self.HOME_DIR / "experiment_metadata.tsv",
+            "SUBJ_META": self.HOME_DIR / "data" / "subjects_metadata.tsv",
+            "EXP_PARAMS": self.HOME_DIR / "config" / "experiment_parameters.json",
+            "SUBJ_PARAMS": self.HOME_DIR / "config" / "subjects_parameters.json"
+        }
 
         self.session_config: Dict = {}
         self.exp_config: Dict = {}
@@ -63,98 +73,86 @@ class BaseExperiment:
         init_log_file = self.HOME_DIR / "init_log.log"
         init_log = logging.LogFile(init_log_file, filemode="w", level=logging.DEBUG)
 
-        # directories
-
-
-    def load_experiment_metadata(self) -> Union[pd.DataFrame, None]:
-        """Loads information about participants"""
-
-        experiment_metadata = None
-
-        # experiment metadata will be in a csv file under exp home folder
-        meta_file = self.HOME_DIR / f"{self.NAME}_metadata.csv"
-        if meta_file.is_file():
+        # data directory
+        init_log.write("Load\n----------------------------------------------------------------------------------")
+        if not self.DIRS["DATA"].is_dir():
             try:
-                experiment_metadata = pd.read_csv(meta_file)
-            except Exception as err:
-                print("I can't open the experiment metadata file.")
-                print(err)
-        else:
+                self.DIRS["DATA"].mkdir()
+            except Exception as e:
+                logging.error(f"Could not create the data directory because: {e}")
+
+        # log directory
+        if not self.DIRS["LOG"].is_dir():
             try:
-                meta_file.touch()  # make an empty file if it's not there
-                # TODO: headers
-            except Exception as err:
-                print("I can't create the experiment metadata file.")
-                print(err)
+                self.DIRS["LOG"].mkdir()
+            except Exception as e:
+                logging.error(f"Could not create the log directory because: {e}")
 
-        return experiment_metadata
+        # files
+        for _file in self.FILES.values():
+            if not _file.is_file():
+                logging.error(f"{_file} file not found.")
 
-    def load_subjects_metadata(self) -> Union[pd.DataFrame, None]:
-        """Loads information about a single subject"""
-
-        subjects_metadata = None
-        # subject metadata will be a csv file in subject's data folder
-        meta_file = self.HOME_DIR / "data" / "subjects_metadata.csv"  # TODO: don't hardcode
-        if meta_file.is_file():
-            try:
-                subjects_metadata = pd.read_csv(meta_file)
-            except Exception as err:
-                print("I can't open subjects metadata file.")
-                print(err)
-        else:
-            print("I didn't find a metadata file. Is this the first time this experiment is running?")
-
-        return subjects_metadata
-
-    def add_subject_metadata(self, new_subject: bool, subject_initials: str):
-
-        meta_file = self.DATA_DIR / "subjcets_metadata.csv"  # TODO: don't hardcode
-
-        rand_id = uuid.uuid4().hex[:4]
-        meta_df = pd.DataFrame({
-            'subject': subject_initials,
-            'ID': rand_id,
-            self.exp_config["EXPERIMENT"]["conditions"]["parts"].values()[0]: False
-        })
+        # read experiment params
         try:
-            meta_df.to_csv(meta_file, index=False)
-        except Exception as err:
-            print("I can't write subjects metadata file.")
-            print(err)
+            with self.FILES["EXP_PARAMS"].open() as p:
+                exp_params = json.loads(p)
+        except Exception as e:
+            logging.error(f"Could not open experiment parameters file because: {e}")
 
-    def _load_configs(self) -> Dict:
-        """Parses the provided config files (located under config/) into the configurations dictionary"""
+        # # read subject params
+        # try:
+        #     with open(self.FILES["SUBJ_PARAMS"], 'r') as p:
+        #         subj_params = json.loads(p)
+        # except Exception as e:
+        #     logging.error(f"Could not open experiment parameters file because: {e}")
 
-        # files are usually located under "config" folder
-        config_dir = self.HOME_DIR / "config"
-        if config_dir.is_dir():
-            config_files = list(f for f in self.config_dir.iterdir() if f.is_file())
-        else:
-            raise FileNotFoundError(f"I didn't find the config folder under {self.HOME_DIR}")  # TODO: add open file
-
-        # load the files and add them to the dict
-        loaded_files = {
-            "JSON": {},
-            "CSV_paths": [],
-            "YAML_paths": []
+        # subjects metadata
+        num_required_subjects = len(exp_params["n_required"])
+        subj_meta_dict = {
+            "subject": [f"subj-{s:02}" for s in range(num_required_subjects)],
+            "id": [uuid.uuid4().hex[:4] for _ in range(num_required_subjects)],
+            "initials": [],
+            "age": [],
+            "handedness": [],
+            "gender": [],
+            "vision": [],
+            "sessions_done": [],
+            "sessions_tbr": [part for part in exp_params["conditions"]["parts"]]
         }
-        for _file in config_files:
-            if _file.name.endswith(".json"):
-                try:
-                    with open(_file, 'r') as json_file:
-                        this_json = json.load(json_file)
-                        loaded_files["JSON"].update(this_json)
-                except Exception as err:
-                    print(f"I couldn't open the JSON file {_file.name}.")
-                    print(err)
-            elif _file.name.endswith(".csv"):
-                loaded_files["CSV_paths"].append(str(_file))
-            elif _file.name.endswith(".yaml"):
-                loaded_files["YAML_paths"].append(str(_file))
-            else:
-                raise FileNotFoundError("No parameter/configuration/condition file found. I have to abort.")
 
-        return loaded_files
+        subj_meta_df = pd.DataFrame(subj_meta_dict)
+        subj_meta_df.to_csv(self.FILES["SUBJ_META"], sep="\t",index=False)
+
+        # subject directories
+        for _subj in range(num_required_subjects):
+            _path = self.DIRS["DATA"] / f"sub-{_subj:02}"
+            _path.mkdir()
+
+        # experiment metadata
+        exp_meta_dict = {
+            "title": exp_params["info"]["title"],
+            "version": exp_params["info"]["version"],
+            "run": [0],
+            "date": date.today(),
+            "logFile": str(init_log_file.relative_to(self.HOME_DIR)),
+            "subject": []
+        }
+
+        exp_meta_df = pd.DataFrame(exp_meta_dict)
+        exp_meta_df.to_csv(self.FILES["EXP_META"], sep="\t", index=False)
+
+        # initial system check
+        sys_results = self._check_system()
+        init_log.write("SYSTEM\n----------------------------------------------------------------------------------")
+        for r in sys_results:
+            logging.debug(r)
+
+        # initial device check
+        device_results = self._check_devices()
+        init_log.write("DEVICES\n---------------------------------------------------------------------------------")
+        for r in device_results:
+            logging.debug(r)
 
     def _get_session_info(self) -> List[str]:
         """Shows GUIs to get session info"""
