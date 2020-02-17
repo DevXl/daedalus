@@ -50,6 +50,21 @@ class BaseExperiment:
             "EXP_PARAMS": self.HOME_DIR / "config" / "experiment_parameters.json",
             "SUBJ_PARAMS": self.HOME_DIR / "config" / "subjects_parameters.json"
         }
+        self.PARAMS = {
+            "EXP": {},
+            "SUBJ": {},
+            "HARDWARE": {}
+        }
+        self.DATA = {
+            "exp": {
+                "meta": {},
+                "session": {}
+            },
+            "subj": {
+                "meta": {},
+                "session": {}
+            }
+        }
 
         self.session_config: Dict = {}
         self.exp_config: Dict = {}
@@ -61,10 +76,6 @@ class BaseExperiment:
         self.data: Dict = {}
         self.logs: Dict = {}
 
-        _init_params = self._load_configs()
-        self.exp_config = _init_params["JSON"]["EXPERIMENT"]
-        self.display_config = _init_params["JSON"]["HARDWARE"]["Display"]
-        self.session_config = _init_params["JSON"]["SUBJECT"]
 
     def initialize_experiment(self):
         """First run initialization"""
@@ -96,19 +107,19 @@ class BaseExperiment:
         # read experiment params
         try:
             with self.FILES["EXP_PARAMS"].open() as p:
-                exp_params = json.loads(p)
+                self.PARAMS["EXP"] = json.loads(p)
         except Exception as e:
             logging.error(f"Could not open experiment parameters file because: {e}")
 
-        # # read subject params
-        # try:
-        #     with open(self.FILES["SUBJ_PARAMS"], 'r') as p:
-        #         subj_params = json.loads(p)
-        # except Exception as e:
-        #     logging.error(f"Could not open experiment parameters file because: {e}")
+        # read subject params
+        try:
+            with self.FILES["SUBJ_PARAMS"].open() as p:
+                self.PARAMS["SUBJ"] = json.loads(p)
+        except Exception as e:
+            logging.error(f"I could not open the subjects' parameters file because: {e}")
 
         # subjects metadata
-        num_required_subjects = len(exp_params["n_required"])
+        num_required_subjects = len(self.PARAMS["EXP"]["n_required"])
         subj_meta_dict = {
             "subject": [f"subj-{s:02}" for s in range(num_required_subjects)],
             "id": [uuid.uuid4().hex[:4] for _ in range(num_required_subjects)],
@@ -118,7 +129,7 @@ class BaseExperiment:
             "gender": [],
             "vision": [],
             "sessions_done": [],
-            "sessions_tbr": [part for part in exp_params["conditions"]["parts"]]
+            "sessions_tbr": [part for part in self.PARAMS["EXP"]["conditions"]["parts"]]
         }
 
         subj_meta_df = pd.DataFrame(subj_meta_dict)
@@ -131,8 +142,8 @@ class BaseExperiment:
 
         # experiment metadata
         exp_meta_dict = {
-            "title": exp_params["info"]["title"],
-            "version": exp_params["info"]["version"],
+            "title": self.PARAMS["EXP"]["info"]["title"],
+            "version": self.PARAMS["EXP"]["info"]["version"],
             "run": [0],
             "date": date.today(),
             "logFile": str(init_log_file.relative_to(self.HOME_DIR)),
@@ -146,13 +157,50 @@ class BaseExperiment:
         sys_results = self._check_system()
         init_log.write("SYSTEM\n----------------------------------------------------------------------------------")
         for r in sys_results:
-            logging.debug(r)
+            logging.warning(r)
 
-        # initial device check
+        # initial devices check
         device_results = self._check_devices()
         init_log.write("DEVICES\n---------------------------------------------------------------------------------")
         for r in device_results:
-            logging.debug(r)
+            logging.warning(r)
+
+
+    def register_subject(self):
+        """
+        Show a gui to enter new subject's information
+        """
+
+        new_subj_dlg = gui.Dlg(title="New Participant Information", labelButtonOK="Next", labelButtonCancel="Cancel")
+
+        # two kinds of keys in subject parameters file: fixed and extra
+        # fixed keys don't have description (they're pretty obvious)
+        for key, val in self.PARAMS["SUBJ"]["fixed"].items():
+            if isinstance(val, list):
+                new_subj_dlg.addField(key, choices=val)
+            else:
+                new_subj_dlg.addField(key, val)
+
+        # extras should have description TODO: check for this at startup
+        for key, val in self.PARAMS["SUBJ"]["extra"].keys():
+            if isinstance(val["init_vals"], list):
+                new_subj_dlg.addField(val["description"], choices=val["init_vals"])
+            else:
+                new_subj_dlg.addField(val["description"], val["init_vals"])
+
+        self.DATA["session"] = new_subj_dlg.show()
+        if new_subj_dlg.OK:
+
+            # write subject to meta files
+            subj_meta_df = pd.read_csv(self.FILES["SUBJ_META"])
+            exp_meta_df = pd.read_csv(self.FILES["EXP_META"])
+
+            subj_meta_df
+
+
+
+
+
 
     def _get_session_info(self) -> List[str]:
         """Shows GUIs to get session info"""
