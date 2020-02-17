@@ -1,3 +1,4 @@
+pandas
 psychopy
 --index-url https://pypi.python.org/simple/
 

@@ -17,6 +17,7 @@ import json
 import pandas as pd
 from math import isclose
 import sys
+import uuid
 
 
 class BaseExperiment:
@@ -35,23 +36,39 @@ class BaseExperiment:
     EXP_TYPE = "BASIC"
 
     def __init__(self, path: str, name: str):
-        self.HOME_DIR = PosixPath(path)
+
         self.NAME = name
-        self.session: Dict = {}
-        self.configuration: Dict = {}
-        self.display: Dict = {}
+        self.HOME_DIR = PosixPath(path)
+        self.DATA_DIR = self.HOME_DIR / "data"
+
+        self.session_config: Dict = {}
+        self.exp_config: Dict = {}
+        self.display_config: Dict = {}
+        self.metadata: Dict = {}
         self.stimuli: Dict = {}
         self.response: Dict = {}
         self.handler: Dict = {}
         self.data: Dict = {}
         self.logs: Dict = {}
 
-        self.configuration = self._load_configs()
+        _init_params = self._load_configs()
+        self.exp_config = _init_params["JSON"]["EXPERIMENT"]
+        self.display_config = _init_params["JSON"]["HARDWARE"]["Display"]
+        self.session_config = _init_params["JSON"]["SUBJECT"]
+
+    def initialize_experiment(self):
+        """First run initialization"""
+
+        logging.console.setLevel(logging.DEBUG)
+        init_log_file = self.HOME_DIR / "init_log.log"
+        init_log = logging.LogFile(init_log_file, filemode="w", level=logging.DEBUG)
+
+        # directories
+
 
     def load_experiment_metadata(self) -> Union[pd.DataFrame, None]:
         """Loads information about participants"""
 
-        meta_header = ["subject"]
         experiment_metadata = None
 
         # experiment metadata will be in a csv file under exp home folder
@@ -65,22 +82,45 @@ class BaseExperiment:
         else:
             try:
                 meta_file.touch()  # make an empty file if it's not there
+                # TODO: headers
             except Exception as err:
                 print("I can't create the experiment metadata file.")
                 print(err)
 
         return experiment_metadata
 
-    def load_subject_metadata(self, subj_name: str):
+    def load_subjects_metadata(self) -> Union[pd.DataFrame, None]:
         """Loads information about a single subject"""
 
-        subject_metadata = None
-
+        subjects_metadata = None
         # subject metadata will be a csv file in subject's data folder
-        meta_file = self.HOME_DIR / "data" / f"{subj_name}_meta.csv"  # TODO: don't hardcode
+        meta_file = self.HOME_DIR / "data" / "subjects_metadata.csv"  # TODO: don't hardcode
         if meta_file.is_file():
-                meta_file = _dir / "metadata.csv"
+            try:
+                subjects_metadata = pd.read_csv(meta_file)
+            except Exception as err:
+                print("I can't open subjects metadata file.")
+                print(err)
+        else:
+            print("I didn't find a metadata file. Is this the first time this experiment is running?")
 
+        return subjects_metadata
+
+    def add_subject_metadata(self, new_subject: bool, subject_initials: str):
+
+        meta_file = self.DATA_DIR / "subjcets_metadata.csv"  # TODO: don't hardcode
+
+        rand_id = uuid.uuid4().hex[:4]
+        meta_df = pd.DataFrame({
+            'subject': subject_initials,
+            'ID': rand_id,
+            self.exp_config["EXPERIMENT"]["conditions"]["parts"].values()[0]: False
+        })
+        try:
+            meta_df.to_csv(meta_file, index=False)
+        except Exception as err:
+            print("I can't write subjects metadata file.")
+            print(err)
 
     def _load_configs(self) -> Dict:
         """Parses the provided config files (located under config/) into the configurations dictionary"""
@@ -112,12 +152,35 @@ class BaseExperiment:
             elif _file.name.endswith(".yaml"):
                 loaded_files["YAML_paths"].append(str(_file))
             else:
-                raise FileNotFoundError("No parameter/configuration/condition file was found. I have to abort.")
+                raise FileNotFoundError("No parameter/configuration/condition file found. I have to abort.")
 
         return loaded_files
 
     def _get_session_info(self) -> List[str]:
-        """Shows a GUI to get session info"""
+        """Shows GUIs to get session info"""
+
+        # load subjects
+        _metadata = self.load_subjects_metadata()
+
+        # choose subject dialogue
+        choose_subj_dlg = gui.Dlg(title=self.NAME, labelButtonOK="Next", labelButtonCancel="New Participant")
+        choose_subj_dlg.addText("Choose a participant", color="Blue")
+        choose_subj_dlg.addField("Initials:", choices=list(_metadata.subject))
+
+        # new subject dialogue
+        new_subj_dlg = gui.Dlg(title="Participant Information", labelButtonOK="Next", labelButtonCancel="Cancel")
+
+
+        # loaded subject dialogue
+        _initials = ""
+        _subj_df = _metadata.loc[_metadata.INITIALS == _initials, ]
+        loaded_subj_dlg = gui.Dlg(title="Participant Information", labelButtonOK="Next", labelButtonCancel="Cancel")
+        for key, val in self.session_config:
+            if key in _subj_df.columns:
+                loaded_subj_dlg.addFixedField(key, _subj_df[key].values[0])
+        loaded_subj_dlg.addFixedField("Initials:", _initials)
+        loaded_subj_dlg.addFixedField("ID:", _subj_df["ID"].values[0])
+        loaded_subj_dlg.addFixedFiled("Session:", _subj_df["NEXT_PART"].values[0])
 
         # construct the GUI's fields based on specified parameters in files
         init_params = self._load_configs()
@@ -166,14 +229,14 @@ class BaseExperiment:
 
             # separate info dict
             for key in init_subj_params.keys():
-                self.session["SUBJECT"][key] = session_info[key]
+                self.session_config["SUBJECT"][key] = session_info[key]
 
             for key in init_hardware_params.keys():
-                self.session["HARDWARE"][key] = session_info[key]
+                self.session_config["HARDWARE"][key] = session_info[key]
 
-            self.session["EXPERIMENT"]["Experimenter"] = session_info["Experimenter"]
-            self.session["EXPERIMENT"]["Date"] = session_info["Date"]
-            self.session["EXPERIMENT"]["Version"] = session_info["Version"]
+            self.session_config["EXPERIMENT"]["Experimenter"] = session_info["Experimenter"]
+            self.session_config["EXPERIMENT"]["Date"] = session_info["Date"]
+            self.session_config["EXPERIMENT"]["Version"] = session_info["Version"]
 
             # run the checks
             if session_info["CHECK_SUBJECT"]:
@@ -212,7 +275,7 @@ class BaseExperiment:
         check_results = []
 
         # validate input type
-        for key, val in self.session["SUBJECT"]:
+        for key, val in self.session_config["SUBJECT"]:
             if (key in init_params.keys()) and (not isinstance(val, list)):
                 if not isinstance(val, type(init_params[key])):
                     check_results.append(f"{key} parameter should be "
