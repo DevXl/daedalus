@@ -11,4 +11,4 @@ __author__ = 'devxl'
 __url__ = 'https://github.com/devxl/daedalus'
 __build_platform__ = 'n/a'
 
-__all__ = ['experiments']
+__all__ = ['experiment']

@@ -4,7 +4,7 @@ created 1/13/20
 
 @author DevXl
 
-Helper functions for building experiments quicker!
+Helper functions for building experiment quicker!
 """
 from psychopy import gui, data, core, visual, event, monitors
 from psychopy.tools.filetools import fromFile, toFile

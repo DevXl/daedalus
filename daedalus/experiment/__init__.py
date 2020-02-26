@@ -39,8 +39,7 @@ class BaseExperiment:
 
         self.NAME = name
         self.HOME_DIR = PosixPath(path)
-        self.DATE = date.today()
-        self.LOG =
+        self.CONFIG = {}
         self.DIRS = {
             "DATA": self.HOME_DIR / "data",
             "CONFIG": self.HOME_DIR / "config",
@@ -167,35 +166,8 @@ class BaseExperiment:
         for r in device_results:
             logging.warning(r)
 
-    def register_subject(self):
-        """
-        Show a gui to enter new subject's information
-        """
-        new_subj_info = {}
 
-        new_subj_dlg = gui.Dlg(title="New Participant Information", labelButtonOK="Next", labelButtonCancel="Cancel")
-        new_subj_dlg.addField("Student ID:")
-        new_subj_dlg.addField("Initials:", tip="lowercase separated by . (e.g. k.m.z)")
-        new_subj_dlg.addField("Age:", choices=list(range(17, 51)))
-        new_subj_dlg.addField("Gender:", ["Male", "Female", "NB"])
-        new_subj_dlg.addField("Handedness:", ["Left", "Right"])
-        new_subj_dlg.addFixedField("Registration Date:", self.DATE)
-        new_subj_dlg.addFixedField("Registration Experiment:", self.NAME)
 
-        user_info = new_subj_dlg.show()
-        if new_subj_dlg.OK:
-
-            # add the input data to the subject dictionary to write to file later
-            new_subj_info["ID"] = uuid.uuid4().hex[:8]  # generate random ID
-            new_subj_info["sID"] = user_info[0]
-            new_subj_info["initials"] = user_info[1]
-            new_subj_info["age"] = user_info[2]
-            new_subj_info["gender"] = user_info[3][0]
-            new_subj_info['hand'] = user_info[4]
-            new_subj_info['date_created'] = str(user_info[5])
-            new_subj_info['exp'] = user_info[5]
-
-        else:
 
 
 
@@ -205,10 +177,10 @@ class BaseExperiment:
     def load_subject(self):
         pass
 
-    def load_subject_database(self):
+    def load_subject(self):
         pass
 
-    def add_to_subject_database(self):
+    def save_subject(self):
         pass
 
 

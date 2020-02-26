@@ -4,7 +4,7 @@ created 1/13/20
 
 @author DevXl
 
-Stimulus commonly used in psychophysics experiments
+Stimulus commonly used in psychophysics experiment
 """
 from psychopy import visual
 import os
