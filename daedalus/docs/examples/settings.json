@@ -1,0 +1,25 @@
+{
+  "EXPERIMENT": {
+    "author": "DevXI",
+    "code": "©0v1|>_L1f3",
+    "title": "Attention-Learning Foraging Game",
+    "description": "Perceptual learning and attention",
+    "version": 0.1,
+    "users": [
+      "Maria",
+      "_sh4r11f"
+    ],
+    "type": "PsychoPhysics",
+    "sessions": 1,
+    "data_points": {
+      "main": 20,
+      "practice": 1
+    },
+    "durations": {
+      "fixation": [500, 80],
+      "devalois": [1000, 150],
+      "double_drift": [1000, 150]
+    }
+  },
+  "SUBJECT": {}
+}

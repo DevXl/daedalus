@@ -15,8 +15,8 @@ def readme():
 
 
 setup(name='daedalus',
-      version='0.1',
-      description='Re-invent the wheel (this time better)',
+      version='1.0',
+      description='Set of routine attributes/functions for vision science experiments',
       long_description=readme(),
       classifiers=[
         'Development Status :: 3 - Alpha',
@@ -26,7 +26,7 @@ setup(name='daedalus',
       ],
       keywords='funniest joke comedy flying circus',
       url='http://github.com/devxl/daedalus',
-      author='devxl',
+      author='DevXI',
       author_email='sharif.saleki@gmail.com',
       packages=['daedalus'],
       install_requires=[

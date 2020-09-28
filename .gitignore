@@ -2,11 +2,13 @@
 *.pyc
 
 # Setuptools distribution folder.
-/dist/
+/dist
 
 # Python egg metadata, regenerated from source files by setuptools.
-/*.egg-info
+*.egg-info
 
 # IntelliJ files
-/.idea
-/.vscode/
+.idea
+
+# visual studio files
+.vscode
